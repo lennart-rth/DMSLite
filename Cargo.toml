@@ -1,0 +1,10 @@
+[package]
+name = "dmslite"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+leptonica-sys = "0.4.7"
+ollama-rs = "0.1.7"
+tesseract-sys = "0.6.1"
+tokio = { version = "1.36.0", features = ["full"] }
