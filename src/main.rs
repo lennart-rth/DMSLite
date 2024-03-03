@@ -1,4 +1,5 @@
 use std::process::Command;
+use crossterm::style::Print;
 use ollama_rs::generation::completion::request::GenerationRequest;
 use ollama_rs::Ollama;
 use std::fs;
@@ -6,6 +7,8 @@ use tokio_postgres::{config::Config, NoTls, Error};
 use chrono::{NaiveDate, Utc};
 use ids_service::crypto_hash::*;
 use std::path::{Path, PathBuf};
+use std::io;
+
 
 struct Document {
     _id: i32,
@@ -22,12 +25,13 @@ struct DocumentContent {
 }
 
 #[derive(Debug)]
-struct searchResult {
+struct SearchResult {
     _id: i32,
     title: String,
     upload_date: NaiveDate,
     rank: f32
 }
+
 
 fn pdf2jpg(name: String) {
     let pdf2jpg = Command::new("pdftoppm")
@@ -215,18 +219,25 @@ async fn consume()  {
         )
         }).collect::<Vec<String>>();
 
-    for name in names {
+    for name in names.clone() {
+        println!("Consuming: {}", &name);
         let (document, document_content) = create_entry(name).await;
         match add_to_psql(document, document_content).await {
-            Ok(_) => println!("Rows listed successfully"),
-            Err(e) => eprintln!("Error: {}", e),
+            Ok(_) => 
+                println!("Database succesfully updated."),
+            Err(e) => 
+                eprintln!("Error updateing Database: {}",e)
         }
+    }
+
+    if names.len() == 0 {
+        println!("Noting to consume!");
     }
 }
 
-async fn search(search_term: String) -> Result<(), Error> {
+async fn search(search_term: String) -> Result<Vec<SearchResult>, Error> {
     let sensitivity: f32 = 0.6;
-    let mut results: Vec<searchResult> = Vec::new();
+    let mut results: Vec<SearchResult> = Vec::new();
 
 
     let mut config = Config::new();
@@ -263,27 +274,95 @@ async fn search(search_term: String) -> Result<(), Error> {
     ORDER BY subquery.distance ASC;",
         &[&search_term, &sensitivity],
     ).await? {
-        // let id: i32 = row.get(0);
-        // let rank: f32 = row.get(1);
-        // let title: &str = row.get(2);
-        // let upload_date: NaiveDate = row.get(3);
-        let search_r = searchResult { _id: row.get(0), rank:row.get(1), title:row.get(2), upload_date:row.get(3)};
+        let search_r = SearchResult { _id: row.get(0), rank:row.get(1), title:row.get(2), upload_date:row.get(3)};
         results.push(search_r);
     }
-    println!("{:?}", results);
-    Ok(())
+    Ok(results)
 }
+
+
 
 
 #[tokio::main]
-async fn main(){
+async fn main() {
+    loop {
+        println!("Please enter a command (c-onsume/s-earch <term>/p-arse/o-pen <id>/q-uit):");
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).expect("Failed to read line");
 
-    // consume().await;
-    match search("Lennart".to_string()).await {
-        Ok(_) => println!("Rows listed successfully"),
-        Err(e) => eprintln!("Error: {}", e),
+        let input = input.trim();
+        let mut parameter = "";
+        let mut cmd = "";
+
+        if input.len() > 1 {
+                cmd = input.split(" ").next().unwrap_or("").trim();
+                parameter = input.split(" ").last().unwrap_or("");
+                if parameter.len() == 0 {
+                    continue
+                }
+        } else {
+            cmd = input;
+        }
+
+        match cmd {
+            "c" => consume().await,
+            "s" => render_search(parameter.to_string()).await,
+            "p" => parse(),
+            "o" => open_file(parameter.to_string()),
+            "q" => {
+                break;
+            }
+            _ => println!("Invalid command!"),
+        }
     }
-    
-
 }
 
+
+
+async fn render_search(parameter: String) {
+
+        let mut results = Vec::new();
+        match search(parameter.trim().to_string()).await {
+            Ok(r) => results = r,
+            Err(e) => eprintln!("Error: {}", e),
+        }
+
+        if results.len() != 0 {
+            println!("+========+==============================================+============+==============+");
+            println!("|   ID   |    TITLE                                     |    RANK    |     DATE     |");
+            println!("+========+==============================================+============+==============+");
+        } else {
+            println!("No Results");
+        }
+
+        for md in results {
+            println!("{}",format!("|{: ^8}|{: ^46}|{: ^12}|{: ^14}|", md._id, md.title, md.rank, md.upload_date.to_string()));
+            println!("+--------+----------------------------------------------+------------+--------------+");
+
+        }
+    }
+
+
+fn parse() {
+    println!("You called command parse.");
+}
+
+fn open_file(id_s :String) {
+    let id: i32 = id_s.parse().unwrap_or(-1);
+    if id > 0 {
+        let filename = "doc_summarizer";
+        let output = Command::new("sudo")
+        .arg("xdg-open")
+        .arg(filename)
+        .output()
+        .expect("failed to execute process");
+
+        // Check if there's any error while executing the command
+        if !output.status.success() {
+            eprintln!(
+                "Error executing xdg-open: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+}
