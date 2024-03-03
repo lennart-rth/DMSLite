@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-leptonica-sys = "0.4.7"
+chrono = "0.4.34"
+futures = "0.3.30"
+ids_service = "1.3.7"
+minus = "5.5.3"
 ollama-rs = "0.1.7"
-tesseract-sys = "0.6.1"
+postgres-types = "0.2.6"
 tokio = { version = "1.36.0", features = ["full"] }
+tokio-postgres = { version = "0.7.10", features = ["with-chrono-0_4"] }

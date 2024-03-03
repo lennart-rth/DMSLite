@@ -1,0 +1,3 @@
+FROM gemma:2b
+PARAMETER temperature 0.2
+SYSTEM Du bekommst eine Zusammenfassung von einem Dokument. Denke dir einen Title für dieses Dokument aus. Er sollte eine Zeitliche komponente enthalten, wenn du sie in der Summary finden kannst und möglichst einzigartig sein. Kein Leerzeichen nur Unterstriche. Antworte nur mit diesem Title Ohne Formatierung! Keine weiteren erklärungn oder Texte.
