@@ -1,5 +1,4 @@
 use std::process::Command;
-use crossterm::style::Print;
 use ollama_rs::generation::completion::request::GenerationRequest;
 use ollama_rs::Ollama;
 use std::fs;
@@ -210,7 +209,7 @@ async fn add_to_psql(document: Document, document_content: DocumentContent) -> R
 
 }
 
-async fn consume()  {
+async fn consume() {
     let paths = fs::read_dir("./consume").unwrap();
     let names = paths.filter_map(|entry| {
         entry.ok().and_then(|e|
@@ -286,28 +285,19 @@ async fn search(search_term: String) -> Result<Vec<SearchResult>, Error> {
 #[tokio::main]
 async fn main() {
     loop {
-        println!("Please enter a command (c-onsume/s-earch <term>/p-arse/o-pen <id>/q-uit):");
+        println!("Please enter a command (c-onsume/s-earch <term>/p-arse/o-pen <id>/d-elete <id>/q-uit):");
         let mut input = String::new();
         io::stdin().read_line(&mut input).expect("Failed to read line");
 
-        let input = input.trim();
-        let mut parameter = "";
-        let mut cmd = "";
-
-        if input.len() > 1 {
-                cmd = input.split(" ").next().unwrap_or("").trim();
-                parameter = input.split(" ").last().unwrap_or("");
-                if parameter.len() == 0 {
-                    continue
-                }
-        } else {
-            cmd = input;
-        }
+        let mut words = input.trim().split_whitespace();
+        let cmd = words.next().unwrap_or("");
+        let parameter = words.last().unwrap_or("");
 
         match cmd {
             "c" => consume().await,
             "s" => render_search(parameter.to_string()).await,
             "p" => parse(),
+            "d" => delete(parameter.to_string()).await,
             "o" => open_file(parameter.to_string()),
             "q" => {
                 break;
@@ -318,29 +308,107 @@ async fn main() {
 }
 
 
+async fn delete(id_s: String) {
+    let id: i32 = id_s.parse().unwrap_or(-1);
+    if id > 0 {
+        let mut config = Config::new();
+        config.host("localhost");
+        config.user("dmslite");
+        config.password("dmslite"); // Replace "your_password" with your actual password
+        config.dbname("dmslite");
+
+        let (mut client, connection) = match config.connect(NoTls).await {
+            Ok(value) => value,
+            Err(e) => {
+                eprintln!("Postgres connection error: {}", e);
+                return;
+            }
+        };
+
+
+        // Spawn a task to process the connection in the background
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("connection error: {}", e);
+            }
+        });
+
+        let filepath_rows = match client.query("SELECT filepath FROM main_table WHERE id = $1;", &[&id]).await {
+            Ok(row) => row,
+            Err(e) => {
+                eprintln!("Postgres SELECT Error: Cant get filepath: {}", e);
+                return;
+            }
+        };
+
+        let mut filepath: String = "".to_string();
+        // We expect only one row
+        if let Some(row) = filepath_rows.get(0) {
+            if let Some(filepath_value) = row.try_get::<_, String>(0).ok() {
+                filepath = filepath_value;
+            } else {
+                eprintln!("Error: Couldn't extract filepath from row.");
+            }
+        } else {
+            eprintln!("Error: No rows returned from the query.");
+        }
+
+        let transaction = match client.transaction().await {
+            Ok(value) => value,
+            Err(e) => {
+                eprintln!("Transaction error: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = transaction.execute(
+            "DELETE FROM main_table
+            WHERE id = $1;",
+            &[&id],
+        ).await {
+            eprintln!("Postgres delete error: {}", e);
+            return;
+        };
+
+        // Commit the transaction
+        if let Err(e) = transaction.commit().await {
+            eprintln!("Posgres transaction commit error: {}", e);
+            return;
+        };
+        
+        // Attempt to remove the file
+        println!("{}", filepath);
+        match fs::remove_file(filepath) {
+            Ok(()) => println!("File deleted successfully"),
+            Err(err) => eprintln!("Error deleting file: {}", err),
+        }
+        
+    } 
+}
+
 
 async fn render_search(parameter: String) {
 
-        let mut results = Vec::new();
-        match search(parameter.trim().to_string()).await {
-            Ok(r) => results = r,
-            Err(e) => eprintln!("Error: {}", e),
-        }
-
-        if results.len() != 0 {
-            println!("+========+==============================================+============+==============+");
-            println!("|   ID   |    TITLE                                     |    RANK    |     DATE     |");
-            println!("+========+==============================================+============+==============+");
-        } else {
-            println!("No Results");
-        }
-
-        for md in results {
-            println!("{}",format!("|{: ^8}|{: ^46}|{: ^12}|{: ^14}|", md._id, md.title, md.rank, md.upload_date.to_string()));
-            println!("+--------+----------------------------------------------+------------+--------------+");
-
-        }
+    let mut results = Vec::new();
+    match search(parameter.trim().to_string()).await {
+        Ok(r) => results = r,
+        Err(e) => eprintln!("Error: {}", e),
     }
+
+    if results.len() != 0 {
+        println!("+========+==============================================+============+==============+");
+        println!("|   ID   |    TITLE                                     |    RANK    |     DATE     |");
+        println!("+========+==============================================+============+==============+");
+    } else {
+        println!("No Results");
+    }
+
+    for md in results {
+        println!("{}",format!("|{: ^8}|{: ^46}|{: ^12}|{: ^14}|", md._id, md.title, md.rank, md.upload_date.to_string()));
+        println!("+--------+----------------------------------------------+------------+--------------+");
+
+    }
+}
 
 
 fn parse() {
