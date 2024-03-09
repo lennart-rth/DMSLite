@@ -6,6 +6,7 @@ use crate::settings::SearchResult;
 use crate::settings::Document;
 use crate::settings::DocumentContent;
 
+
 pub struct Database {
     pub client: Option<Client>,
     pub connection:Option<Connection<Socket, NoTlsStream>>,
@@ -20,7 +21,7 @@ impl Database {
         config.dbname(settings::PSQL_DBNAME);
 
         let (client, connection) = config.connect(NoTls).await?;
-        
+
         Ok(Self {
             client: Some(client),
             connection: Some(connection),
@@ -29,9 +30,15 @@ impl Database {
 
 }
 
+
 // Add the content of the Document and Document_content Struct in the DB.
 pub async fn add_to_psql(document: Document, document_content: DocumentContent) -> Result<(), Error> {
     let db: Database = Database::init().await.unwrap();
+    tokio::spawn(async move {
+        if let Err(e) = db.connection.expect("Coudlnt find Connection to Psql").await {
+            eprintln!("psql connection error: {}", e);
+        }
+    });
     // Begin a transaction
     let mut client = db.client.expect("Psql Cient not found");
     let transaction = client.transaction().await?;
@@ -67,6 +74,11 @@ pub async fn search(search_term: String) -> Result<Vec<SearchResult>, Error> {
     let mut results: Vec<SearchResult> = Vec::new();
 
     let db: Database = Database::init().await.unwrap();
+    tokio::spawn(async move {
+        if let Err(e) = db.connection.expect("Coudlnt find Connection to Psql").await {
+            eprintln!("psql connection error: {}", e);
+        }
+    });
     let client = db.client.expect("Psql Cient not found");
 
     // Prepare and execute the search query

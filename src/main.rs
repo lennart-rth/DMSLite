@@ -1,6 +1,5 @@
 use std::process::Command;
 use std::fs;
-use tokio_postgres::Client;
 use chrono::{NaiveDate, Utc};
 use ids_service::crypto_hash::*;
 use std::path::{Path, PathBuf};
@@ -155,6 +154,11 @@ async fn main() {
         }
 
         let db: Database = psql::Database::init().await.unwrap();
+        tokio::spawn(async move {
+            if let Err(e) = db.connection.expect("Coudlnt find Connection to Psql").await {
+                eprintln!("Psql connection error: {}", e);
+            }
+        });
         let rows: i64 = match db.client.expect("Databse init failed!").query("SELECT COUNT(*) FROM main_table;", &[]).await {
             Ok(row) => row[0].get(0),
             Err(e) => {
@@ -171,7 +175,13 @@ async fn main() {
 
 // List all Documents in the Database
 async fn list_all() {
-    let client: Client = psql::Database::init().await.unwrap().client.expect("Psql Cient not found");
+    let db = psql::Database::init().await.unwrap();
+    tokio::spawn(async move {
+        if let Err(e) = db.connection.expect("Coudlnt find Connection to Psql").await {
+            eprintln!("Psql connection error: {}", e);
+        }
+    });
+    let client = db.client.expect("Psql Cient not found");
     // Prepare and execute the search query
     let all = match client.query("SELECT id, title, upload_date FROM main_table;",&[]).await {
         Ok(row) => row,
@@ -208,7 +218,13 @@ async fn list_all() {
 async fn delete(id_s: String) {
     let id: i32 = id_s.parse().unwrap_or(-1);
     if id > 0 {
-        let mut client: Client = psql::Database::init().await.unwrap().client.expect("Psql Cient not found");
+        let db = psql::Database::init().await.unwrap();
+        tokio::spawn(async move {
+            if let Err(e) = db.connection.expect("Coudlnt find Connection to Psql").await {
+                eprintln!("psql connection error: {}", e);
+            }
+        });
+        let mut client = db.client.expect("Psql Cient not found");
 
         let filepath_rows = match client.query("SELECT filepath FROM main_table WHERE id = $1;", &[&id]).await {
             Ok(row) => row,
@@ -297,7 +313,13 @@ async fn render_search(parameter: String) {
 async fn open_file(id_s :String) {
     let id: i32 = id_s.parse().unwrap_or(-1);
     if id > 0 {
-        let client: Client = psql::Database::init().await.unwrap().client.expect("Psql Cient not found");
+        let db = psql::Database::init().await.unwrap();
+        tokio::spawn(async move {
+            if let Err(e) = db.connection.expect("Coudlnt find Connection to Psql").await {
+                eprintln!("psql connection error: {}", e);
+            }
+        });
+        let client = db.client.expect("Psql Cient not found");
 
         let filepath_rows = match client.query("SELECT filepath FROM main_table WHERE id = $1;", &[&id]).await {
             Ok(row) => row,
