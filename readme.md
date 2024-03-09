@@ -1,14 +1,17 @@
+![Crates.io MSRV (version)](https://img.shields.io/crates/msrv/dmslite/:version)
 # DMSLite
 DMS Lite is a secure and lightweight command-line tool for document management. It provides efficient document indexing, searching, and AI-based categorization, ensuring fast performance even with large document volumes, all while keeping operations entirely local on your machine for maximum privacy and security.
 
 ## Usage
-You can:
+If your roots bin folder is in $PATH you can type `dmslite` everywhere to:
 1. __Consume Documents:__ Add documents to a specified folder to process. (E.g. with the command `c`)
 2. __Search Documents:__ Use the CLI to search for documents by content, title, or creation date (fuzzy word similarity search). (E.g. with the command `s` followed by the search phrase)
 3. __Open Documents:__ Open a Document found with the search with its default application right from the cli tool. (E.g. with the command `o` followed by the id found out by a search before)
 4. __Delete Documents:__ Delete a Document found with the search by its id. (E.g. with the command `d` followed by the id found out by a prior search.)
 
 ## Installation and Setup
+
+### `cargo install dmslite`
 
 ### Prerequisites
 1. [PostgreSQL](https://www.postgresql.org/) database

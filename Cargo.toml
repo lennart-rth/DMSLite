@@ -2,6 +2,11 @@
 name = "dmslite"
 version = "0.1.0"
 edition = "2021"
+description = "A tool to search files"
+readme = "readme.md"
+repository = "https://github.com/lennart-rth/DMSLite"
+keywords = ["cli", "Document Management System"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 chrono = "0.4.34"
