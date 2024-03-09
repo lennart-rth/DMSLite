@@ -5,7 +5,7 @@ edition = "2021"
 description = "A tool to search files"
 readme = "readme.md"
 repository = "https://github.com/lennart-rth/DMSLite"
-keywords = ["cli", "Document Management System"]
+keywords = ["cli", "DMS"]
 categories = ["command-line-utilities"]
 license = "MIT"
 
