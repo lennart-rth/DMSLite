@@ -8,6 +8,8 @@ use ids_service::crypto_hash::*;
 use std::path::{Path, PathBuf};
 use std::io;
 
+mod settings;
+
 
 struct Document {
     _id: i32,
@@ -35,10 +37,10 @@ struct SearchResult {
 fn pdf2jpg(name: String) {
     let pdf2jpg = Command::new("pdftoppm")
         .arg("-jpeg")
+        .arg(name.clone())
         .arg(name)
-        .arg("image")
         .stdout(std::process::Stdio::null())
-        .current_dir("/home/lennart/Documents/Repos/dmslite/consume/")
+        .current_dir(settings::settings::CONSUME_PATH)
         .status()
         .expect("failed to execute process");
 
@@ -55,15 +57,17 @@ fn pdf2jpg(name: String) {
 }
 
 fn ocr(name: String) {
-    pdf2jpg(name);
+    pdf2jpg(name.clone());
+
+    let ppm_out_name = name.split(".").next().unwrap_or_default();
 
     let tesseract = Command::new("tesseract")
-    .arg("image-1.jpg")
+    .arg(ppm_out_name.to_owned()+".pdf-1.jpg")
     .arg("output")
     .arg("-l")
-    .arg("deu")
+    .arg(settings::settings::TESSERACT_LANG)
     .stdout(std::process::Stdio::null())
-    .current_dir("/home/lennart/Documents/Repos/dmslite/consume/")
+    .current_dir(settings::settings::CONSUME_PATH)
     .status()
     .expect("failed to execute process");
 
@@ -86,7 +90,7 @@ fn tidy_up_string(mut string: String) -> String {
 }
 
 async fn llm_prompt() -> (String, String, String, String) {
-    let mut contents = fs::read_to_string("consume/output.txt".to_string())
+    let mut contents = fs::read_to_string(settings::settings::CONSUME_PATH.to_owned()+"output.txt")
         .expect("Should have been able to read the file");
     contents.retain(|c| c.is_ascii());
     contents.retain(|c| !c.is_ascii_control());
@@ -95,7 +99,7 @@ async fn llm_prompt() -> (String, String, String, String) {
 
 
     let mut summary = llm_inference(contents.clone(), "doc_summarizer".to_string()).await;
-    let mut buzzwords = llm_inference(contents.clone(), "doc_buzword_generator".to_string()).await;
+    let mut buzzwords = llm_inference(contents.clone(), "doc_buzzword_generator".to_string()).await;
     let mut title = llm_inference(buzzwords.clone(), "doc_title_generator".to_string()).await;
 
     summary = tidy_up_string(summary);
@@ -140,10 +144,16 @@ async fn create_entry(name: String) -> (Document, DocumentContent) {
 
     // Copy File into Storage Dir with Hash as the name.
     let hash = create_id_as_sha256();
-    let old_path = "consume/".to_string();
+    let old_path = settings::settings::CONSUME_PATH;
     let new_name = change_file_name(&name.clone(), &hash).into_os_string().into_string().unwrap();
-    let new_path = "/home/lennart/DMSLITE/".to_owned()+&new_name;
-    let _ = fs::rename(old_path+&name, new_path.clone());
+    let new_path = settings::settings::STORAGE_PATH.to_owned()+&new_name;
+    let _ = match fs::rename(old_path.to_owned()+&name, new_path.clone()) {
+        Ok(()) => (),
+        Err(e) => {
+            eprint!("Error: {}", e);
+        },
+    };
+    println!("copy from {} to {}", old_path.to_owned()+&name, new_path.clone());
 
     // Define PSQL Structs
     let upload_date = Utc::now().date_naive();
@@ -162,24 +172,46 @@ async fn create_entry(name: String) -> (Document, DocumentContent) {
     };
 
     // Clean up
-    let _ = fs::remove_file("consume/image-1.jpg");
-    let _ = fs::remove_file("consume/output.txt");
+    let del = clean_up();
+    match del {
+        Ok(()) => (),
+        Err(e) => eprintln!("Cant clean up the consume dir: {}", e),
+    }
     
     (document, document_content)
 }
 
+fn clean_up() -> io::Result<()> {
+    let _ = fs::remove_file(settings::settings::CONSUME_PATH.to_owned()+"output.txt");
+
+    let entries = fs::read_dir(settings::settings::CONSUME_PATH)?;
+    for entry in entries {
+        let entry = entry?;
+        let file_path = entry.path();
+
+        if let Some(extension) = file_path.extension() {
+            if extension == "jpg" {
+                // Delete the file
+                fs::remove_file(&file_path)?;
+                println!("Deleted file: {:?}", file_path);
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn add_to_psql(document: Document, document_content: DocumentContent) -> Result<(), Error> {
     let mut config = Config::new();
-    config.host("localhost");
-    config.user("dmslite");
-    config.password("dmslite"); // Replace "your_password" with your actual password
-    config.dbname("dmslite");
+    config.host(settings::settings::PSQL_HOST);
+    config.user(settings::settings::PSQL_USER);
+    config.password(settings::settings::PSQL_PASSWD);
+    config.dbname(settings::settings::PSQL_DBNAME);
 
     let (mut client, connection) = config.connect(NoTls).await?;
     // Spawn a task to process the connection in the background
     tokio::spawn(async move {
         if let Err(e) = connection.await {
-            eprintln!("connection error: {}", e);
+            eprintln!("lconnection error: {}", e);
         }
     });
     // Begin a transaction
@@ -210,7 +242,7 @@ async fn add_to_psql(document: Document, document_content: DocumentContent) -> R
 }
 
 async fn consume() {
-    let paths = fs::read_dir("./consume").unwrap();
+    let paths = fs::read_dir(settings::settings::CONSUME_PATH).unwrap();
     let names = paths.filter_map(|entry| {
         entry.ok().and_then(|e|
             e.path().file_name()
@@ -219,18 +251,20 @@ async fn consume() {
         }).collect::<Vec<String>>();
 
     for name in names.clone() {
-        println!("Consuming: {}", &name);
-        let (document, document_content) = create_entry(name).await;
-        match add_to_psql(document, document_content).await {
-            Ok(_) => 
-                println!("Database succesfully updated."),
-            Err(e) => 
-                eprintln!("Error updateing Database: {}",e)
+        if name.ends_with(".pdf") {
+            println!("Consuming: {}", &name);
+            let (document, document_content) = create_entry(name).await;
+            match add_to_psql(document, document_content).await {
+                Ok(_) => 
+                    println!("Database succesfully updated."),
+                Err(e) => 
+                    eprintln!("Error updateing Database: {}",e)
+            }
         }
     }
 
     if names.len() == 0 {
-        println!("Noting to consume!");
+        println!("Nothing to consume!");
     }
 }
 
@@ -240,10 +274,10 @@ async fn search(search_term: String) -> Result<Vec<SearchResult>, Error> {
 
 
     let mut config = Config::new();
-    config.host("localhost");
-    config.user("dmslite");
-    config.password("dmslite"); // Replace "your_password" with your actual password
-    config.dbname("dmslite");
+    config.host(settings::settings::PSQL_HOST);
+    config.user(settings::settings::PSQL_USER);
+    config.password(settings::settings::PSQL_PASSWD);
+    config.dbname(settings::settings::PSQL_DBNAME);
 
     // Establish connection to the PostgreSQL database
     let (client, connection) = config.connect(NoTls).await?;
@@ -285,7 +319,7 @@ async fn search(search_term: String) -> Result<Vec<SearchResult>, Error> {
 #[tokio::main]
 async fn main() {
     loop {
-        println!("Please enter a command (c-onsume/s-earch <term>/p-arse/o-pen <id>/d-elete <id>/q-uit):");
+        println!("Please enter a command (_c_onsume || _s_earch <term> || _o_pen <id> || _d_elete <id>  || _l_ist all || _q_uit):");
         let mut input = String::new();
         io::stdin().read_line(&mut input).expect("Failed to read line");
 
@@ -296,26 +330,113 @@ async fn main() {
         match cmd {
             "c" => consume().await,
             "s" => render_search(parameter.to_string()).await,
-            "p" => parse(),
             "d" => delete(parameter.to_string()).await,
-            "o" => open_file(parameter.to_string()),
+            "o" => open_file(parameter.to_string()).await,
+            "l" => list_all().await,
             "q" => {
                 break;
             }
             _ => println!("Invalid command!"),
         }
+
+        // Get the Database Row count.
+        let mut config = Config::new();
+        config.host(settings::settings::PSQL_HOST);
+        config.user(settings::settings::PSQL_USER);
+        config.password(settings::settings::PSQL_PASSWD);
+        config.dbname(settings::settings::PSQL_DBNAME);
+
+        let (client, connection) = match config.connect(NoTls).await {
+            Ok(value) => value,
+            Err(e) => {
+                eprintln!("Postgres connection error: {}", e);
+                return;
+            }
+        };
+
+        // Spawn a task to process the connection in the background
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("connection error: {}", e);
+            }
+        });
+
+        let rows: i64 = match client.query("SELECT COUNT(*) FROM main_table;", &[]).await {
+            Ok(row) => row[0].get(0),
+            Err(e) => {
+                eprintln!("Postgres row count failed with: {}", e);
+                return;
+            }
+        };
+
+        println!("{rows} Documents stored!");
+        
+        
     }
 }
 
+async fn list_all() {
+
+    let mut config = Config::new();
+    config.host(settings::settings::PSQL_HOST);
+    config.user(settings::settings::PSQL_USER);
+    config.password(settings::settings::PSQL_PASSWD);
+    config.dbname(settings::settings::PSQL_DBNAME);
+
+    // Establish connection to the PostgreSQL database
+    let (client, connection) = match config.connect(NoTls).await {
+        Ok(value) => value,
+        Err(e) => {
+            eprintln!("Postgres connection error: {}", e);
+            return;
+        }
+    };
+    // Spawn a task to process the connection in the background
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("connection error: {}", e);
+        }
+    });
+
+    // Prepare and execute the search query
+    let all = match client.query("SELECT id, title, upload_date FROM main_table;",&[]).await {
+        Ok(row) => row,
+        Err(e) => {
+            eprintln!("Postgres list all error: {}", e);
+            return;
+        }
+    };
+
+    if all.len() != 0 {
+        println!("+========+==============================================+==============+");
+        println!("|   ID   |    TITLE                                     |     DATE     |");
+        println!("+========+==============================================+==============+");
+    } else {
+        println!("No Results");
+    }
+
+    for row in all {
+        let mut title:String = row.get(1);
+        if title.len() > 46 {
+            title = title.replace("\n", "");
+            title.truncate(46);
+        }
+        
+        let id: i32 = row.get(0);
+        let date: NaiveDate = row.get(2);
+        println!("{}",format!("|{: ^8}|{: ^46}|{: ^14}|", id, title, date.to_string()));
+        println!("+--------+----------------------------------------------+--------------+");
+    }
+}
 
 async fn delete(id_s: String) {
     let id: i32 = id_s.parse().unwrap_or(-1);
     if id > 0 {
         let mut config = Config::new();
-        config.host("localhost");
-        config.user("dmslite");
-        config.password("dmslite"); // Replace "your_password" with your actual password
-        config.dbname("dmslite");
+        config.host(settings::settings::PSQL_HOST);
+        config.user(settings::settings::PSQL_USER);
+        config.password(settings::settings::PSQL_PASSWD);
+        config.dbname(settings::settings::PSQL_DBNAME);
 
         let (mut client, connection) = match config.connect(NoTls).await {
             Ok(value) => value,
@@ -404,24 +525,67 @@ async fn render_search(parameter: String) {
     }
 
     for md in results {
-        println!("{}",format!("|{: ^8}|{: ^46}|{: ^12}|{: ^14}|", md._id, md.title, md.rank, md.upload_date.to_string()));
+        let mut title:String = md.title;
+        if title.len() > 46 {
+            title = title.replace("\n", "");
+            title.truncate(46);
+        }
+    
+        println!("{}",format!("|{: ^8}|{: ^46}|{: ^12}|{: ^14}|", md._id, title, md.rank, md.upload_date.to_string()));
         println!("+--------+----------------------------------------------+------------+--------------+");
 
     }
 }
 
 
-fn parse() {
-    println!("You called command parse.");
-}
-
-fn open_file(id_s :String) {
+async fn open_file(id_s :String) {
     let id: i32 = id_s.parse().unwrap_or(-1);
     if id > 0 {
-        let filename = "doc_summarizer";
-        let output = Command::new("sudo")
-        .arg("xdg-open")
-        .arg(filename)
+        let mut config = Config::new();
+        config.host(settings::settings::PSQL_HOST);
+        config.user(settings::settings::PSQL_USER);
+        config.password(settings::settings::PSQL_PASSWD);
+        config.dbname(settings::settings::PSQL_DBNAME);
+
+        let (client, connection) = match config.connect(NoTls).await {
+            Ok(value) => value,
+            Err(e) => {
+                eprintln!("Postgres connection error: {}", e);
+                return;
+            }
+        };
+
+
+        // Spawn a task to process the connection in the background
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("connection error: {}", e);
+            }
+        });
+
+        let filepath_rows = match client.query("SELECT filepath FROM main_table WHERE id = $1;", &[&id]).await {
+            Ok(row) => row,
+            Err(e) => {
+                eprintln!("Postgres SELECT Error: Cant get filepath: {}", e);
+                return;
+            }
+        };
+
+        let mut filepath: String = "".to_string();
+        // We expect only one row
+        if let Some(row) = filepath_rows.get(0) {
+            if let Some(filepath_value) = row.try_get::<_, String>(0).ok() {
+                filepath = filepath_value;
+            } else {
+                eprintln!("Error: Couldn't extract filepath from row.");
+            }
+        } else {
+            eprintln!("Error: No rows returned from the query.");
+        }
+
+
+        let output = Command::new("xdg-open")
+        .arg(filepath)
         .output()
         .expect("failed to execute process");
 
