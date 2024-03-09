@@ -15,6 +15,7 @@ You can:
 2. [Tesseract](https://github.com/tesseract-ocr/tesseract) installed in your local language
 3. [Ollama](https://ollama.com/) setup with a local Model.
 4. pdftoppm (Installed with `sudo apt install poppler-utils`)
+5. xdg-open. To be able to open Docuemnts right from the terminal.
 
 ### PostgreSQL Database Setup
 1. CREATE USER dmslite WITH PASSWORD 'dmslite';
