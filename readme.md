@@ -1,6 +1,6 @@
-![Crates.io MSRV (version)](https://img.shields.io/crates/msrv/dmslite/:version)
+![Crates.io MSRV](https://img.shields.io/crates/msrv/dmslite/)
 # DMSLite
-DMS Lite is a secure and lightweight command-line tool for document management. It provides efficient document indexing, searching, and AI-based categorization, ensuring fast performance even with large document volumes, all while keeping operations entirely local on your machine for maximum privacy and security.
+DMSLite is a secure and lightweight command-line tool for document management. It provides efficient document indexing, searching, and AI-based categorization, ensuring fast performance even with large document volumes, all while keeping operations entirely local on your machine for maximum privacy and security.
 
 ## Usage
 If your roots bin folder is in $PATH you can type `dmslite` everywhere to:
