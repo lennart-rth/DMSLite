@@ -60,6 +60,9 @@ If your roots bin folder is in $PATH you can type `dmslite` everywhere to:
 ### Ollama Custom Models Setup
 
     Build custom Ollama models:
+    For Memory restricted machines the gemma:2b Model is recommended (Default).
+    Otherwise Choose llama2.
+    Set this inside the Modelfiles as the FROM <model> Command. 
     ```
     ollama create doc_buzzword_generator -f doc_buzzword_generator
     ollama create doc_summarizer -f doc_summarizer
