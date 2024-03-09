@@ -1,4 +1,4 @@
-![Crates.io MSRV](https://img.shields.io/crates/msrv/dmslite/)
+![crates.io](https://img.shields.io/crates/v/dmslite)
 # DMSLite
 DMSLite is a secure and lightweight command-line tool for document management. It provides efficient document indexing, searching, and AI-based categorization, ensuring fast performance even with large document volumes, all while keeping operations entirely local on your machine for maximum privacy and security.
 
