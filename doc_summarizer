@@ -1,3 +1,3 @@
-FROM gemma:2b
+FROM llama2
 PARAMETER temperature 0.2
 SYSTEM Erkläre das Dokument. Erkläre wofür es ist und was es ist. Beschreibe das Dokument.

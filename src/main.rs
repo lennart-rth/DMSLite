@@ -93,7 +93,6 @@ fn clean_up() -> io::Result<()> {
     Ok(())
 }
 
-
 // Consume all Files in the Consume dir.
 // 1. Find all Files in the Dir
 // 2. if File is PDF, create the Entry for each file
